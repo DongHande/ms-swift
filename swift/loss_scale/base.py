@@ -110,6 +110,9 @@ class LossScale:
                                              (self.base_strategy == 'default' and is_assistant) or
                                              (self.base_strategy == 'last_round' and is_assistant and is_last_round)):
                     new_context, loss_scale = self.get_loss_scale(context, query=query)
+                    # 如果有自定义loss系数（非None），将其乘以基础权重
+                    if loss is not None:
+                        loss_scale = [s * float(loss) for s in loss_scale]
                 else:
                     new_context, loss_scale = [context], [0.]
             res_context_list += new_context
