@@ -66,7 +66,11 @@ class LossScale:
                 if isinstance(context, dict) and 'token_ids' in context:
                     context = context['token_ids']
                 if context_type == ContextType.RESPONSE and loss is not None:
-                    new_context, loss_scale = [context], [float(loss)]
+                    # new_context, loss_scale = [context], [float(loss)]
+                    # 先调用 get_loss_scale 获取默认 loss scale 策略的权重
+                    new_context, base_loss_scale = self.get_loss_scale(context, query=query)
+                    # 再乘以自定义的 loss 系数
+                    loss_scale = [s * float(loss) for s in base_loss_scale]
                 else:
                     is_assistant = context_type in {ContextType.RESPONSE, ContextType.SUFFIX}
                     if self.base_strategy == 'all' or (self.base_strategy == 'default'
