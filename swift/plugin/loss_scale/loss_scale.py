@@ -9,7 +9,12 @@ from swift.llm.template import get_last_user_round
 from swift.llm.template.utils import ContextType
 from .utils import calculate_loss_scale
 
-ALL_BASE_STRATEGY = ['default', 'last_round', 'all']
+# loss_scale 策略说明：
+# default: 只训练 response 和 suffix 部分的 token 的 loss
+# last_round: 只训练最后一轮 response 和 suffix 部分的 token 的 loss
+# all: 训练所有 token 的 loss
+# ignore_system: 只训练除了 system 以外的部分的 token 的 loss
+ALL_BASE_STRATEGY = ['default', 'last_round', 'all', 'ignore_system']
 
 
 class LossScale:
@@ -53,6 +58,7 @@ class LossScale:
         for context, context_type in zip(context_list, context_types):
             is_last_round = 2 * i >= last_user_round
             query, loss = None, None
+            # 只有 ContextType.RESPONSE 类型的 context 对应的 loss 字段会被使用
             if context_type == ContextType.RESPONSE:
                 query = messages[2 * i]['content']
                 # Currently, we only support applying loss/mask to the response part.
@@ -73,9 +79,10 @@ class LossScale:
                     loss_scale = [s * float(loss) for s in base_loss_scale]
                 else:
                     is_assistant = context_type in {ContextType.RESPONSE, ContextType.SUFFIX}
-                    if self.base_strategy == 'all' or (self.base_strategy == 'default'
-                                                       and is_assistant) or (self.base_strategy == 'last_round'
-                                                                             and is_assistant and is_last_round):
+                    if self.base_strategy == 'all' \
+                    or (self.base_strategy == 'default' and is_assistant) \
+                    or (self.base_strategy == 'last_round' and is_assistant and is_last_round) \
+                    or (self.base_strategy == 'ignore_system' and context_type != ContextType.SYSTEM):
                         new_context, loss_scale = self.get_loss_scale(context, query=query)
                     else:
                         new_context, loss_scale = [context], [0.]
