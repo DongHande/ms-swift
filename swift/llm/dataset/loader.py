@@ -12,7 +12,7 @@ from typing import Dict, List, Literal, Optional, Tuple, Union
 import numpy as np
 from datasets import Dataset as HfDataset
 from datasets import concatenate_datasets, interleave_datasets
-from datasets import load_dataset as hf_load_dataset
+from datasets import load_dataset as hf_load_dataset, load_from_disk as hf_load_from_disk
 from modelscope.hub.api import ModelScopeConfig
 from modelscope.hub.utils.utils import get_cache_dir
 from modelscope.utils.config_ds import MS_CACHE_HOME
@@ -237,6 +237,15 @@ class DatasetLoader:
         columns: Optional[Dict[str, str]] = None,
         remove_unused_columns: bool = True,
     ) -> HfDataset:
+        # First try to load the dataset with `load_from_disk` in case the dataset_id is a local path
+        if os.path.isdir(dataset_id) and os.path.isfile(os.path.join(dataset_id, 'dataset_info.json')):
+            try:
+                dataset = hf_load_from_disk(dataset_id)
+                return dataset
+            except FileNotFoundError:
+                logger.error(f"Directory {dataset_id} is neither a `Dataset` directory nor a `DatasetDict` directory.")
+            except Exception as e:
+                logger.error(f"Failed to load dataset from directory {dataset_id} with error: {e}")
         datasets = []
         if os.path.isdir(dataset_id):
             retry = 1

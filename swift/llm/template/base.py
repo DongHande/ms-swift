@@ -252,6 +252,7 @@ class Template(ProcessorMixin):
                 raise ValueError(f'inputs.tools: {inputs.tools}')
             for i, tool in enumerate(inputs.tools):
                 inputs.tools[i] = agent_template.wrap_tool(tool)
+        # 格式化 tool_call 消息，并将连续的 tool_call 消息合并成一条 assistant 消息
         i = 0
         messages = inputs.messages
         while i < len(messages):
@@ -719,22 +720,34 @@ class Template(ProcessorMixin):
             round1 = str(round0 + 1)
             round0 = str(round0)
         for context in context_list:
-            if isinstance(context, str):
-                if '{{RESPONSE}}' == context:
-                    assert response is not None
-                    res_context_list.append(response)
-                    res_context_type.append(ContextType.RESPONSE)
+
+            # 如果 context 不是字符串，直接添加到结果列表中，并标记为 ContextType.OTHER
+            if not isinstance(context, str):
+                res_context_list.append(context)
+                res_context_type.append(ContextType.OTHER)
+                continue
+
+            # 处理 ContextType.RESPONSE
+            if '{{RESPONSE}}' == context:
+                assert response is not None
+                res_context_list.append(response)
+                res_context_type.append(ContextType.RESPONSE)
+                continue
+
+            # 如果 context 中包含 {{SYSTEM}}，则将 context_type 标记为 ContextType.SYSTEM，否则标记为 ContextType.OTHER
+            context_type = ContextType.OTHER if '{{SYSTEM}}' not in context else ContextType.SYSTEM
+            # 依次替换 context 中的占位符，并根据是否替换了 {{SYSTEM}} 来确定 context_type
+            old_str_list = ['{{SYSTEM}}', '{{QUERY}}', '{{ROUND0}}', '{{ROUND1}}']
+            new_str_list = [system, query, round0, round1]
+            for (old_str, new_str) in zip(old_str_list, new_str_list):
+                if new_str is None or old_str not in context:
                     continue
-                old_str_list = ['{{SYSTEM}}', '{{QUERY}}', '{{ROUND0}}', '{{ROUND1}}']
-                new_str_list = [system, query, round0, round1]
-                for (old_str, new_str) in zip(old_str_list, new_str_list):
-                    if new_str is not None and old_str in context:
-                        assert isinstance(new_str, str), f'new_str: {new_str}'
-                        context = context.replace(old_str, new_str)
+                assert isinstance(new_str, str), f'new_str: {new_str}'
+                context = context.replace(old_str, new_str)
             if len(context) == 0:
                 continue
             res_context_list.append(context)
-            res_context_type.append(ContextType.OTHER)
+            res_context_type.append(context_type)
 
     def _simplify_context_list(self, context_list: List[Context], loss_scale_list: List[float],
                                inputs: StdTemplateInputs) -> Tuple[List[Context], List[float]]:
@@ -980,6 +993,7 @@ class Template(ProcessorMixin):
             else:
                 token_list = context
             input_ids += token_list
+            # 仅有 loss_scale > 0 的 token 才计算 loss
             if loss_scale_list[i] > 0.0:
                 labels += token_list
             else:
@@ -1105,6 +1119,7 @@ class Template(ProcessorMixin):
             pre_role, pre_content = pre_message['role'], pre_message['content']
             role, content = message['role'], message['content']
             if pre_role == 'assistant' and role == 'tool' and self.template_backend == 'swift':
+                # 格式化连续的 tool 消息，并合并为一条 tool 消息
                 i_start = i
                 while i + 1 < len(messages) and messages[i + 1]['role'] == 'tool':
                     i += 1
@@ -1223,6 +1238,7 @@ class Template(ProcessorMixin):
         if template_meta.auto_add_bos and sep_token:
             res_context_list.append(sep_token)
             res_context_types.append(ContextType.SUFFIX)
+        # 计算 loss_scale
         res_context_list, loss_scale_list = self.loss_scale(res_context_list, res_context_types, inputs.messages,
                                                             **inputs.extra_kwargs)
         if self.is_training:

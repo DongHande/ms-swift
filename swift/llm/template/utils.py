@@ -11,6 +11,7 @@ Context = Word
 
 
 class ContextType:
+    SYSTEM = 'system'
     RESPONSE = 'response'
     SUFFIX = 'suffix'
     OTHER = 'other'
