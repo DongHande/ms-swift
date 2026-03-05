@@ -14,7 +14,11 @@ from .utils import calculate_loss_scale
 # last_round: 只训练最后一轮 response 和 suffix 部分的 token 的 loss
 # all: 训练所有 token 的 loss
 # ignore_system: 只训练除了 system 以外的部分的 token 的 loss
-ALL_BASE_STRATEGY = ['default', 'last_round', 'all', 'ignore_system']
+# response_only: 只训练 response 部分的 token 的 loss
+# tool_only: 只训练 tool 部分的 token 的 loss
+# tool_call_only: 只训练 tool_call 部分的 token 的 loss
+# response_and_tool_call: 训练 response 和 tool_call 部分的 token 的 loss
+ALL_BASE_STRATEGY = ['default', 'last_round', 'all', 'ignore_system', 'response_only', 'tool_only', 'tool_call_only', 'response_and_tool_call']
 
 
 class LossScale:
@@ -26,7 +30,14 @@ class LossScale:
     loss_scale_config = None  # path
     is_binary = None
 
-    def __init__(self, base_strategy: Literal['default', 'last_round', 'all'] = 'default'):
+    def __init__(self, base_strategy: Literal['default',
+                                              'last_round',
+                                              'all',
+                                              'ignore_system',
+                                              'response_only',
+                                              'tool_only',
+                                              'tool_call_only',
+                                              'response_and_tool_call'] = 'default'):
         assert base_strategy in ALL_BASE_STRATEGY, (
             f'ALL_BASE_STRATEGY: {ALL_BASE_STRATEGY}, base_strategy: {base_strategy}')
         self.base_strategy = base_strategy
@@ -58,33 +69,55 @@ class LossScale:
         for context, context_type in zip(context_list, context_types):
             is_last_round = 2 * i >= last_user_round
             query, loss = None, None
+
             # 只有 ContextType.RESPONSE 类型的 context 对应的 loss 字段会被使用
             if context_type == ContextType.RESPONSE:
                 query = messages[2 * i]['content']
                 # Currently, we only support applying loss/mask to the response part.
                 loss = messages[2 * i + 1].get('loss')
-                assert context == messages[2 * i + 1]['content']
+                assistant_content = messages[2 * i + 1]['content']
+                if isinstance(assistant_content, str):
+                    assert context == assistant_content
+                else:
+                    assert context in assistant_content, f'context: {context}, assistant_content: {assistant_content}'
+                    # assert context.strip() in {c.strip() for c in assistant_content}, f'context: {context}, assistant_content: {assistant_content}'
                 i += 1
+            # ContextType.TOOL_CALL 原先是 ContextType.RESPONSE，目前区分出来，因此对应上一轮的 query 和 loss 字段
+            if context_type == ContextType.TOOL_CALL:
+                i -= 1
+                query = messages[2 * i]['content']
+                # Currently, we only support applying loss/mask to the response part.
+                loss = messages[2 * i + 1].get('loss')
+                assistant_content = messages[2 * i + 1]['content']
+                if isinstance(assistant_content, str):
+                    assert context == assistant_content
+                else:
+                    assert context in assistant_content, f'context: {context}, assistant_content: {assistant_content}'
+                    # assert context.strip() in {c.strip() for c in assistant_content}, f'context: {context}, assistant_content: {assistant_content}'
+                i += 1
+
             if isinstance(context, dict) and 'loss_scale' in context:
                 new_context = [[token] for token in context['token_ids']]
                 loss_scale = context['loss_scale']
             else:
                 if isinstance(context, dict) and 'token_ids' in context:
                     context = context['token_ids']
-                if context_type == ContextType.RESPONSE and loss is not None:
-                    # new_context, loss_scale = [context], [float(loss)]
-                    # 先调用 get_loss_scale 获取默认 loss scale 策略的权重
-                    new_context, base_loss_scale = self.get_loss_scale(context, query=query)
-                    # 再乘以自定义的 loss 系数
-                    loss_scale = [s * float(loss) for s in base_loss_scale]
+                # RESPONSE 和 TOOL_CALL 都是 assistant 的生成内容，SUFFIX 为 sep 或 eos，训练时也属于 assistant 范畴
+                is_assistant = context_type in {ContextType.RESPONSE, ContextType.TOOL_CALL, ContextType.SUFFIX}
+                if self.base_strategy == 'all' \
+                or (self.base_strategy == 'default' and is_assistant) \
+                or (self.base_strategy == 'last_round' and is_assistant and is_last_round) \
+                or (self.base_strategy == 'ignore_system' and context_type != ContextType.SYSTEM) \
+                or (self.base_strategy == 'response_only' and context_type == ContextType.RESPONSE) \
+                or (self.base_strategy == 'tool_only' and context_type == ContextType.TOOL) \
+                or (self.base_strategy == 'tool_call_only' and context_type == ContextType.TOOL_CALL) \
+                or (self.base_strategy == 'response_and_tool_call' and context_type in {ContextType.RESPONSE, ContextType.TOOL_CALL}):
+                    new_context, loss_scale = self.get_loss_scale(context, query=query)
+                    # 仅有 loss_scale 为 default 或 last_round 时，才乘以 loss 字段，其他类型不受 loss 字段影响
+                    if loss is not None and self.base_strategy in {'default', 'last_round'}:
+                        # 乘以自定义的 loss 系数
+                        loss_scale = [s * float(loss) for s in loss_scale]
                 else:
-                    is_assistant = context_type in {ContextType.RESPONSE, ContextType.SUFFIX}
-                    if self.base_strategy == 'all' \
-                    or (self.base_strategy == 'default' and is_assistant) \
-                    or (self.base_strategy == 'last_round' and is_assistant and is_last_round) \
-                    or (self.base_strategy == 'ignore_system' and context_type != ContextType.SYSTEM):
-                        new_context, loss_scale = self.get_loss_scale(context, query=query)
-                    else:
                         new_context, loss_scale = [context], [0.]
             res_context_list += new_context
             res_loss_scale += loss_scale

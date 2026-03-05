@@ -15,6 +15,8 @@ class ContextType:
     RESPONSE = 'response'
     SUFFIX = 'suffix'
     OTHER = 'other'
+    TOOL = 'tool'
+    TOOL_CALL = 'tool_call'
 
 
 class StopWordsCriteria(StoppingCriteria):
