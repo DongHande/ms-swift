@@ -69,6 +69,7 @@ class SwiftSft(SwiftPipeline, TunerMixin):
     def _prepare_template(self) -> None:
         args = self.args
         template = args.get_template(self.processor)
+        print(f'Using template: {template.__class__.__name__}, template_type: {template.template_meta.template_type}')
         template.set_mode('train')
         if template.use_model:
             template.model = self.model

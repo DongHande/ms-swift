@@ -257,6 +257,10 @@ class Template(ProcessorMixin):
         messages = inputs.messages
         while i < len(messages):
             if messages[i]['role'] == 'tool_call':
+                if messages[i - 1]['role'] != 'assistant':
+                    # 在 tool_call 前插入一条 assistant 消息，内容为 ""，以便区分 response 和 tool_call
+                    messages.insert(i, {'role': 'assistant', 'content': ''})
+                    i += 1
                 i_start = i
                 while i + 1 < len(messages) and messages[i + 1]['role'] == 'tool_call':
                     i += 1
@@ -1216,7 +1220,7 @@ class Template(ProcessorMixin):
             response_role, response = response_message['role'], response_message['content']
             # TODO: Optimize the Template mechanism.
             assert query_role in {'user', 'tool'}, f'query_role: "{query_role}"'
-            assert response_role in {'assistant', 'tool_call'}, f'response_role: "{response_role}"'
+            assert response_role in {'assistant'}, f'response_role: "{response_role}"'
 
             num_tool_messages = 0 # 记录当前轮次中 role 为 tool 的消息数量
             if query_role == 'tool':
@@ -1388,6 +1392,7 @@ class Template(ProcessorMixin):
             template_backend = 'jinja'
             logger.info_once(f'Setting template_backend: {template_backend}')
         self._swift_prepare_inputs(inputs)
+        # self._swift_encode 前，数据中不应该存在 role 为 tool_call 的消息
         res_context_list, loss_scale_list, answer_len = (
             self._swift_encode(inputs) if template_backend == 'swift' else self._jinja_encode(inputs))
         encoded = {}
