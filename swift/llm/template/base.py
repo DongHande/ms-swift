@@ -1216,7 +1216,7 @@ class Template(ProcessorMixin):
             response_role, response = response_message['role'], response_message['content']
             # TODO: Optimize the Template mechanism.
             assert query_role in {'user', 'tool'}, f'query_role: "{query_role}"'
-            assert response_role in {'assistant'}, f'response_role: "{response_role}"'
+            assert response_role in {'assistant', 'tool_call'}, f'response_role: "{response_role}"'
 
             num_tool_messages = 0 # 记录当前轮次中 role 为 tool 的消息数量
             if query_role == 'tool':

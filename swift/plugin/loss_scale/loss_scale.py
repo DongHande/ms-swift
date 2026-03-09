@@ -118,7 +118,7 @@ class LossScale:
                         # 乘以自定义的 loss 系数
                         loss_scale = [s * float(loss) for s in loss_scale]
                 else:
-                        new_context, loss_scale = [context], [0.]
+                    new_context, loss_scale = [context], [0.]
             res_context_list += new_context
             res_loss_scale += loss_scale
         return res_context_list, res_loss_scale
