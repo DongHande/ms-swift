@@ -11,10 +11,12 @@ Context = Word
 
 
 class ContextType:
-    SYSTEM = 'system'
-    RESPONSE = 'response'
-    SUFFIX = 'suffix'
-    OTHER = 'other'
+    SYSTEM = 'system' # system prompt
+    RESPONSE = 'response' # assistant 内容，不包含 tool_call 内容
+    TOOL_CALL = 'tool_call' # tool_call 内容，原先属于 response 类型
+    SUFFIX = 'suffix' # sep 或 eos
+    TOOL = 'tool' # tool 内容
+    OTHER = 'other' # 其他内容，比如 user
 
 
 class StopWordsCriteria(StoppingCriteria):

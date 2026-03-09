@@ -252,16 +252,21 @@ class Template(ProcessorMixin):
                 raise ValueError(f'inputs.tools: {inputs.tools}')
             for i, tool in enumerate(inputs.tools):
                 inputs.tools[i] = agent_template.wrap_tool(tool)
-        # 格式化 tool_call 消息，并将连续的 tool_call 消息合并成一条 assistant 消息
+        # 格式化 tool_call 消息，并将连续的 tool_call 消息合并成一条 tool_call 消息
         i = 0
         messages = inputs.messages
         while i < len(messages):
             if messages[i]['role'] == 'tool_call':
+                if messages[i - 1]['role'] != 'assistant':
+                    # 在 tool_call 前插入一条 assistant 消息，内容为 ""，以便区分 response 和 tool_call
+                    messages.insert(i, {'role': 'assistant', 'content': ''})
+                    i += 1
                 i_start = i
                 while i + 1 < len(messages) and messages[i + 1]['role'] == 'tool_call':
                     i += 1
                 tool_content = self.agent_template._format_tool_calls(messages[i_start:i + 1])
-                messages[i_start:i + 1] = [{'role': 'assistant', 'content': tool_content}]
+                # 仍保持 role 为 tool_call，以便区分 response 和 tool_call
+                messages[i_start:i + 1] = [{'role': 'tool_call', 'content': tool_content}]
                 i = i_start + 1
             else:
                 i += 1
@@ -713,13 +718,15 @@ class Template(ProcessorMixin):
             system: Optional[str] = None,
             query: Optional[str] = None,
             response: Optional[str] = None,
-            round0: Optional[int] = None) -> None:
+            round0: Optional[int] = None,
+            num_tool_messages: Optional[int] = None) -> None:
         """Concat context list and replace placeholder"""
+        # 增加 num_tool_messages 参数，用于标记 context_list 中前 num_tool_messages 条消息是 role 为 tool 的消息
         round1 = None
         if round0 is not None:
             round1 = str(round0 + 1)
             round0 = str(round0)
-        for context in context_list:
+        for context_i, context in enumerate(context_list):
 
             # 如果 context 不是字符串，直接添加到结果列表中，并标记为 ContextType.OTHER
             if not isinstance(context, str):
@@ -730,12 +737,24 @@ class Template(ProcessorMixin):
             # 处理 ContextType.RESPONSE
             if '{{RESPONSE}}' == context:
                 assert response is not None
-                res_context_list.append(response)
-                res_context_type.append(ContextType.RESPONSE)
+                if isinstance(response, list) and response and isinstance(response[0], str):
+                    assert len(response) > 0, 'response should not be empty when it is a list.'
+                    res_context_list.append(response[0])
+                    res_context_type.append(ContextType.RESPONSE)
+                    for r in response[1:]:
+                        res_context_list.append(r)
+                        res_context_type.append(ContextType.TOOL_CALL)
+                else:
+                    res_context_list.append(response)
+                    res_context_type.append(ContextType.RESPONSE)
                 continue
 
             # 如果 context 中包含 {{SYSTEM}}，则将 context_type 标记为 ContextType.SYSTEM，否则标记为 ContextType.OTHER
-            context_type = ContextType.OTHER if '{{SYSTEM}}' not in context else ContextType.SYSTEM
+            context_type = ContextType.OTHER
+            if '{{SYSTEM}}' in context:
+                context_type = ContextType.SYSTEM
+            elif num_tool_messages is not None and context_i < num_tool_messages: # 前 num_tool_messages 条 context 是 tool 消息
+                context_type = ContextType.TOOL
             # 依次替换 context 中的占位符，并根据是否替换了 {{SYSTEM}} 来确定 context_type
             old_str_list = ['{{SYSTEM}}', '{{QUERY}}', '{{ROUND0}}', '{{ROUND1}}']
             new_str_list = [system, query, round0, round1]
@@ -1029,6 +1048,10 @@ class Template(ProcessorMixin):
 
     def _jinja_encode(self, inputs: StdTemplateInputs):
         messages = inputs.messages.copy()
+        for message in messages:
+            # 如果 content 是 list，且 role 是 assistant，则将 content 中的字符串元素合并为一个字符串
+            if message['role'] == 'assistant' and isinstance(message['content'], list):
+                message['content'] = ''.join([c for c in message['content'] if isinstance(c, str)])
         if inputs.system is not None:
             messages.insert(0, {'role': 'system', 'content': inputs.system})
         if messages[-1]['content'] is None:
@@ -1069,12 +1092,16 @@ class Template(ProcessorMixin):
             for i, message in enumerate(messages):
                 if i < start_idx:
                     continue
-                if message['role'] == 'assistant' and isinstance(message['content'], str):
-                    if not message['content'].startswith(('<think>', non_thinking_prefix)):
-                        # During multi-turn SFT training/validation:
-                        # If the message has no <think> block and does not start with the non_thinking_prefix,
-                        # prepend the non_thinking_prefix to the content.
-                        message['content'] = non_thinking_prefix + message['content']
+                if message['role'] == 'assistant':
+                    if isinstance(message['content'], str):
+                        if not message['content'].startswith(('<think>', non_thinking_prefix)):
+                            # During multi-turn SFT training/validation:
+                            # If the message has no <think> block and does not start with the non_thinking_prefix,
+                            # prepend the non_thinking_prefix to the content.
+                            message['content'] = non_thinking_prefix + message['content']
+                    elif isinstance(message['content'], list) and message['content'] and isinstance(message['content'][0], str):
+                        if not message['content'][0].startswith(('<think>', non_thinking_prefix)):
+                            message['content'][0] = non_thinking_prefix + message['content'][0]
 
     def _remove_thinking_content(self, content: str) -> str:
         content = content.split('</think>')[-1].strip()
@@ -1089,8 +1116,11 @@ class Template(ProcessorMixin):
         last_user_round = get_last_user_round(messages)
         for i, message in enumerate(messages):
             # Delete the content before '</think>' in all assistant turns except the last round.
-            if message['role'] == 'assistant' and isinstance(message['content'], str) and i < last_user_round:
-                message['content'] = self._remove_thinking_content(message['content'])
+            if message['role'] == 'assistant' and i < last_user_round:
+                if isinstance(message['content'], str):
+                    message['content'] = self._remove_thinking_content(message['content'])
+                elif isinstance(message['content'], list) and message['content'] and isinstance(message['content'][0], str):
+                    message['content'][0] = self._remove_thinking_content(message['content'][0])
 
     def _swift_prepare_inputs(self, inputs: StdTemplateInputs):
         """
@@ -1123,11 +1153,21 @@ class Template(ProcessorMixin):
                 i_start = i
                 while i + 1 < len(messages) and messages[i + 1]['role'] == 'tool':
                     i += 1
+                # tool_content: 将连续的 tool 消息 (messages[i_start:i + 1]) 的 content 合并为一个 list
                 pre_message['content'], tool_content = self.agent_template._format_tool_responses(
                     pre_content, messages[i_start:i + 1])
                 # where tool_content is a List.
                 messages[i_start:i + 1] = [{'role': 'tool', 'content': tool_content}]
                 i = i_start + 1
+            elif pre_role == 'assistant' and role == 'tool_call':
+                # 将 tool_call 消息合并到前一条 assistant 消息中，合并后 role 仍为 assistant
+                if isinstance(pre_content, str):
+                    pre_message['content'] = [pre_content, content]
+                elif isinstance(pre_content, list):
+                    pre_message['content'] = pre_content + [content]
+                else:
+                    pre_message['content'] = pre_content + content
+                messages.pop(i)
             elif pre_role == 'assistant' and role == 'assistant' or pre_role == 'user' and role == 'user':
                 # Consecutive messages from the assistant/user role need to be merged to prevent errors.
                 pre_message['content'] = pre_content + content
@@ -1175,14 +1215,18 @@ class Template(ProcessorMixin):
         assert len(inputs.messages) > 0, f'inputs.messages: {inputs.messages}'
         n_round = len(inputs.messages) // 2
         for i, (query_message, response_message) in enumerate(zip(inputs.messages[::2], inputs.messages[1::2])):
+
             query_role, query = query_message['role'], query_message['content']
             response_role, response = response_message['role'], response_message['content']
             # TODO: Optimize the Template mechanism.
             assert query_role in {'user', 'tool'}, f'query_role: "{query_role}"'
             assert response_role in {'assistant'}, f'response_role: "{response_role}"'
+
+            num_tool_messages = 0 # 记录当前轮次中 role 为 tool 的消息数量
             if query_role == 'tool':
-                prompt = query
+                prompt = query # list of str
                 query = ''
+                num_tool_messages = len(prompt)
             elif template_meta.is_post_system and i == n_round - 1:
                 prompt = template_meta.system_prompt
             else:
@@ -1202,7 +1246,13 @@ class Template(ProcessorMixin):
                 context_list.append('{{RESPONSE}}')
                 # The GLM-4.5 assistant part (tool call) may end with <|observation|>,
                 # and here we avoid adding <|user|>.
-                response_content = response
+
+                # response 为 list[str] 是因为该 response 中，第一项是 cot message，后续为 tool_call message
+                if isinstance(response, list) and isinstance(response[0], str):
+                    response_content = ''.join(response)
+                else:
+                    response_content = response
+
                 if not isinstance(response_content, str):
                     if isinstance(response, list):
                         token_ids = response
@@ -1232,7 +1282,8 @@ class Template(ProcessorMixin):
                 query=query,
                 response=response,
                 system=system,
-                round0=i)
+                round0=i,
+                num_tool_messages=num_tool_messages)
             res_context_list += extra_context_list
             res_context_types += [extra_context_type] * len(extra_context_list)
         if template_meta.auto_add_bos and sep_token:
@@ -1341,6 +1392,7 @@ class Template(ProcessorMixin):
             template_backend = 'jinja'
             logger.info_once(f'Setting template_backend: {template_backend}')
         self._swift_prepare_inputs(inputs)
+        # self._swift_encode 前，数据中不应该存在 role 为 tool_call 的消息
         res_context_list, loss_scale_list, answer_len = (
             self._swift_encode(inputs) if template_backend == 'swift' else self._jinja_encode(inputs))
         encoded = {}
