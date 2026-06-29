@@ -6,7 +6,7 @@ from typing import List, Literal, Optional, Tuple
 from swift.template import ContextType, Messages, get_last_user_round
 from .utils import calculate_loss_scale
 
-ALL_BASE_STRATEGY = ['default', 'last_round', 'all']
+ALL_BASE_STRATEGY = ['default', 'last_round', 'all', 'mask_system', 'custom']
 
 
 class LossScale:
@@ -24,19 +24,21 @@ class LossScale:
                 If False, an additional 'loss_scale' key will be stored and the
                 corresponding loss function will be used.
             base_strategy (str): Base strategy for loss computation. One of 'default',
-                'last_round', or 'all'.
+                'last_round', 'all', 'mask_system', or 'custom'.
                 - 'default': Only compute loss on assistant responses
                 - 'last_round': Only compute loss on the last round's assistant response
                 - 'all': Compute loss on all parts
+                - 'mask_system': Compute loss on all parts except system prompts
+                - 'custom': Read loss_scale from each message's 'loss_scale' field per role
     """
     is_binary = True
 
-    def __init__(self, base_strategy: Literal['default', 'last_round', 'all'] = 'default'):
+    def __init__(self, base_strategy: Literal['default', 'last_round', 'all', 'mask_system', 'custom'] = 'default'):
         """Initialize the loss scale object.
 
         Args:
             base_strategy: Base strategy for loss computation. One of 'default',
-                'last_round', or 'all'. Defaults to 'default'.
+                'last_round', 'all', 'mask_system', or 'custom'. Defaults to 'default'.
 
         Raises:
             ValueError: If the provided base_strategy is not in the allowed list.
@@ -88,17 +90,27 @@ class LossScale:
         res_context_list = []
         res_loss_scale = []
         i = 0
+        is_custom = self.base_strategy == 'custom'
+        system_loss_scale = kwargs.get('system_loss_scale')
         last_user_round = get_last_user_round(messages)
         for context, context_type in zip(context_list, context_types):
             is_last_round = 2 * i >= last_user_round
             query, loss, loss_scale = None, None, None
             if context_type == ContextType.RESPONSE:
                 query = messages[2 * i]['content']
-                # Currently, we only support applying loss/mask to the response part.
                 loss = messages[2 * i + 1].get('loss')
                 loss_scale = messages[2 * i + 1].get('loss_scale')
                 assert context == messages[2 * i + 1]['content']
                 i += 1
+            elif is_custom:
+                if context_type == ContextType.SYSTEM:
+                    loss_scale = system_loss_scale
+                elif context_type == ContextType.QUERY:
+                    loss_scale = messages[2 * i].get('loss_scale')
+                elif context_type == ContextType.SUFFIX:
+                    # SUFFIX follows the last RESPONSE; use the preceding assistant's loss_scale.
+                    loss_scale = messages[2 * (i - 1) + 1].get('loss_scale') if i > 0 else None
+                # OTHER (BOS, chat_sep, etc.) keeps loss_scale=None, will be handled by _inner_call.
             if not isinstance(context, list) or (len(context) > 0 and isinstance(context[0], int)):
                 context = [context]
             for j in range(len(context)):
@@ -119,9 +131,18 @@ class LossScale:
             if isinstance(context, dict) and 'token_ids' in context:
                 context = context['token_ids']
             is_assistant = context_type in {ContextType.RESPONSE, ContextType.SUFFIX}
-            if loss or loss is None and (self.base_strategy == 'all' or
-                                         (self.base_strategy == 'default' and is_assistant) or
-                                         (self.base_strategy == 'last_round' and is_assistant and is_last_round)):
+            is_system = context_type == ContextType.SYSTEM
+            if self.base_strategy == 'custom':
+                # In custom mode, use the per-message loss_scale directly.
+                # loss_scale is already extracted from the message in __call__.
+                if loss_scale is not None:
+                    new_context, loss_scale = [context], [loss_scale]
+                else:
+                    new_context, loss_scale = [context], [0.]
+            elif loss or loss is None and (self.base_strategy == 'all' or
+                                           (self.base_strategy == 'mask_system' and not is_system) or
+                                           (self.base_strategy == 'default' and is_assistant) or
+                                           (self.base_strategy == 'last_round' and is_assistant and is_last_round)):
                 if loss_scale is None:
                     new_context, loss_scale = self.get_loss_scale(context, query=query)
                 else:
@@ -133,6 +154,8 @@ class LossScale:
     @property
     def is_binary_loss_scale(self):
         """Check if loss scale values are binary (only 0 and 1)."""
+        if self.base_strategy == 'custom':
+            return False
         return self.is_binary
 
 
@@ -152,7 +175,7 @@ class ConfigLossScale(LossScale):
     is_binary = None
     loss_scale_config = None  # path
 
-    def __init__(self, base_strategy: Literal['default', 'last_round', 'all'] = 'default'):
+    def __init__(self, base_strategy: Literal['default', 'last_round', 'all', 'mask_system', 'custom'] = 'default'):
         """Initialize the config-based loss scale object.
 
         Loads the loss scale configuration from a JSON file if loss_scale_config
@@ -160,7 +183,7 @@ class ConfigLossScale(LossScale):
 
         Args:
             base_strategy: Base strategy for loss computation. One of 'default',
-                'last_round', or 'all'. Defaults to 'default'.
+                'last_round', 'all', 'mask_system', or 'custom'. Defaults to 'default'.
         """
         super().__init__(base_strategy)
         self.loss_scale_map = None
@@ -211,7 +234,7 @@ class ConcatLossScale(LossScale):
 
     def __init__(self,
                  loss_scales: List[LossScale],
-                 base_strategy: Literal['default', 'last_round', 'all'] = 'default'):
+                 base_strategy: Literal['default', 'last_round', 'all', 'mask_system', 'custom'] = 'default'):
         super().__init__(base_strategy)
         assert loss_scales, 'loss_scales must be a non-empty list'
         self.loss_scales = loss_scales

@@ -835,12 +835,16 @@ class Template(ProcessorMixin):
             round1 = str(round0 + 1)
             round0 = str(round0)
         for context in context_list:
+            has_system = False
+            has_query = False
             if isinstance(context, str):
                 if '{{RESPONSE}}' == context:
                     assert response is not None
                     res_context_list.append(response)
                     res_context_type.append(ContextType.RESPONSE)
                     continue
+                has_system = '{{SYSTEM}}' in context
+                has_query = '{{QUERY}}' in context
                 old_str_list = ['{{SYSTEM}}', '{{QUERY}}', '{{ROUND0}}', '{{ROUND1}}']
                 new_str_list = [system, query, round0, round1]
                 for (old_str, new_str) in zip(old_str_list, new_str_list):
@@ -850,7 +854,12 @@ class Template(ProcessorMixin):
             if len(context) == 0:
                 continue
             res_context_list.append(context)
-            res_context_type.append(ContextType.OTHER)
+            if has_query:
+                res_context_type.append(ContextType.QUERY)
+            elif has_system:
+                res_context_type.append(ContextType.SYSTEM)
+            else:
+                res_context_type.append(ContextType.OTHER)
 
     def _simplify_context_list(self, context_list: List[Context], loss_scale_list: List[float],
                                inputs: StdTemplateInputs) -> Tuple[List[Context], List[float]]:

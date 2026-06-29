@@ -21,6 +21,8 @@ class ContextType:
     RESPONSE = 'response'
     SUFFIX = 'suffix'
     OTHER = 'other'
+    SYSTEM = 'system'
+    QUERY = 'query'
 
 
 class StopWordsCriteria(StoppingCriteria):

@@ -67,9 +67,11 @@ class StdTemplateInputs:
         objects = inputs.get('objects') or {}
         chat_template_kwargs = inputs.get('chat_template_kwargs') or {}
 
+        system_loss_scale = None
         if messages and messages[0]['role'] == 'system':
             message = messages.pop(0)
             system = message['content']
+            system_loss_scale = message.get('loss_scale')
         else:
             system = None
 
@@ -94,6 +96,8 @@ class StdTemplateInputs:
 
         all_keys = set(f.name for f in fields(StdTemplateInputs))
         extra_kwargs = {k: v for k, v in inputs.items() if k not in all_keys}
+        if system_loss_scale is not None:
+            extra_kwargs['system_loss_scale'] = system_loss_scale
         return cls(
             messages=messages,
             system=system,

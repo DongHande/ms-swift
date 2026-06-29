@@ -20,11 +20,11 @@ def get_loss_scale(loss_scale: str) -> LossScale:
     """Factory function to create a loss scale object from a string specification.
 
     The loss_scale string supports the following formats (segments separated by '+'):
-    1. A strategy name alone (e.g., 'default', 'last_round', 'all') - uses base LossScale
+    1. A strategy name alone (e.g., 'default', 'last_round', 'all', 'mask_system', 'custom') - uses base LossScale
     2. A loss scale type alone (e.g., 'hermes', 'react') - uses 'default' strategy
     3. A strategy name followed by a loss scale type (e.g., 'default+react', 'last_round+qwen')
     4. Multiple loss scale types chained together, optionally led by a base strategy
-       (e.g., 'hermes+ignore_empty_think', 'last_round+hermes+ignore_empty_think').
+       (e.g., 'hermes+ignore_empty_think', 'mask_system+hermes+ignore_empty_think').
        The chained loss scales are applied sequentially: each loss scale processes the
        output of the previous one and the corresponding weights are multiplied together.
 
