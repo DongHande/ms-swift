@@ -68,6 +68,13 @@ class RowPreprocessor:
         assert len(messages) > 0, f'messages: {messages}'
         # fix swift/SlimOrca (concat)
         for message in messages:
+            if 'loss' in message:
+                logger.warning_once(
+                    "Detected the 'loss' field in the training dataset messages. "
+                    "Note: the 'loss' field only takes effect on assistant responses; "
+                    'it is ignored for other roles (e.g. user/tool). '
+                    "To control loss on non-assistant roles, use '--loss_scale custom' with a 'loss_scale' field.",
+                    hash_id='dataset_message_loss_field')
             keys = set(message.keys()) - {'role', 'content', 'loss', 'loss_scale'}
             for key in keys:
                 message.pop(key)
