@@ -68,7 +68,7 @@ class RowPreprocessor:
         assert len(messages) > 0, f'messages: {messages}'
         # fix swift/SlimOrca (concat)
         for message in messages:
-            if 'loss' in message:
+            if message.get('loss') is not None:
                 logger.warning_once(
                     "Detected the 'loss' field in the training dataset messages. "
                     "Note: the 'loss' field only takes effect on assistant responses; "
