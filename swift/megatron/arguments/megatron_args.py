@@ -606,6 +606,7 @@ class MegatronArguments(RLHFMegatronArgumentsMixin, MegatronTunerMixin):
     no_load_optim: bool = False
     no_load_rng: bool = False
     finetune: bool = True
+    load_optim_in_finetune: bool = False
     perform_initialization: bool = False
     use_cpu_initialization: bool = False
     async_save: bool = False

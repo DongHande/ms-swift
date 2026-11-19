@@ -537,9 +537,14 @@ def load_mcore_checkpoint(args,
         if ckpt_tp_pp != run_tp_pp:
             logger.info(f'{mismatch_msg}: RNG state will be ignored')
     sharded_sd_metadata = get_sharded_sd_metadata(args) if fsdp_dtensor else state_dict.get('content_metadata')
-    if (not finetune and not no_load_optim and not getattr(state_dict['args'], 'no_save_optim', False)):
+    load_optim = (
+        (not finetune or getattr(args, 'load_optim_in_finetune', False))
+        and not no_load_optim
+        and not getattr(state_dict['args'], 'no_save_optim', False)
+    )
+    if load_optim:
         gen_sd_optim = optimizer
-        gen_sd_opt_param_scheduler = opt_param_scheduler
+        gen_sd_opt_param_scheduler = None if finetune else opt_param_scheduler
 
         if (args.use_distributed_optimizer and ckpt_tp_pp != run_tp_pp
                 and (sharded_sd_metadata or {}).get('distrib_optim_sharding_type') not in {
@@ -589,10 +594,10 @@ def load_mcore_checkpoint(args,
                 continue
             m.load_state_dict(state_dict[f'model{i}'])
 
-    if not finetune and not no_load_optim:
+    if load_optim:
         if optimizer is not None:
             _load_optimizer_state_dict(optimizer, state_dict['optimizer'])
-        if opt_param_scheduler is not None:
+        if not finetune and opt_param_scheduler is not None:
             opt_param_scheduler.load_state_dict(state_dict['opt_param_scheduler'])
     elif (args.fp16 or args.bf16) and optimizer is not None:
         optimizer.reload_model_params()
