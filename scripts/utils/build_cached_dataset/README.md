@@ -10,7 +10,7 @@
 
 本文以外部归档的实际报告和源码快照为准。此前文档中的 Qwen-only 结果、环境阻塞和待验收说明是阶段记录，不应与最终跨模型结果混用。本文初次新增时没有重新运行模型验证、训练或缓存构建。
 
-**后续范围收缩：**按使用者要求，`swift/agent_template/deepseek_v3_1.py` 已恢复官方 HEAD 原始实现，并移除仅针对该适配新增的三个正文来源参数用例；GLM 修改保留。下文 31 文件补丁与 126 passed 是恢复之前的真实历史证据，不改写原报告，也不冒充恢复后的整套复验结果。三个已测模型的 agent 调用链不经过 V31 override。恢复后完整运行 `tests/loss_scale/test_role_loss_scale.py`，**27 passed、退出码 0**，约 118 秒；证据保存在 `/data_train/vectorchen/github/ms-swift-validation-20261119/cross-model/v31-revert/role.log`、`role.xml`、`role.exit`。本轮未重新运行三模型完整对照。
+**后续范围收缩：**按使用者要求，`swift/agent_template/deepseek_v3_1.py` 已恢复官方 HEAD 原始实现，并移除仅针对该适配新增的三个正文来源参数用例；GLM 修改保留。下文 31 文件补丁与 126 passed 是恢复之前的真实历史证据，不改写原报告，也不冒充恢复后的整套复验结果。三个已测模型的 agent 调用链不经过 V31 override。恢复后完整运行 `tests/loss_scale/test_role_loss_scale.py`，**27 passed、退出码 0**，约 118 秒；证据保存在 `/data_train/vectorchen/github/ms-swift-validation-20261119/cross-model/role-regression-20261119/role.log`、`role.xml`、`role.exit`。本轮未重新运行三模型完整对照。
 
 ### 1.1 基线与交付范围
 
@@ -73,26 +73,21 @@
 4. 普通 `swift export --to_cached_dataset` 保存的是**消息行及 `lengths`**，训练读取后重新 encode，不是已经完成的逐 token IDs/labels/权重缓存。完整 encoded Arrow 缓存是另一种路径。
 5. 普通缓存中的 `lengths` 和消息权重不能替代训练时相同的 template/agent template、源码和 assistant 配置；构建 manifest 也不是训练入口自动完成的真实性认证。
 
-## 3. DeepSeek V3.1 与 GLM4 修改是否必要
+## 3. GLM4 修改的必要性
 
-**结论：`glm4.py` 对已测 GLM-5.3-Flash 的 role 工具后追加 user 场景必要，保留；`deepseek_v3_1.py` 不属于三个已测模型的必需修改，已按使用者要求恢复官方 HEAD 原始形态。**不修改模型权重或工具协议。
+**结论：`swift/agent_template/glm4.py` 的修改对已测 GLM-5.3-Flash 的 role 工具后追加 user 场景是必要的。**该文件虽以 GLM4 命名，实际承载 GLM4.5/4.7、GLM5.1 共用的 agent 实现，因此不能按文件名排除在 GLM-5 的调用链之外。
 
-| 模型 | 实际 agent 继承/实现 | 与这两处文件的关系 |
+| 模型 | 实际 agent 继承/实现 | 与本文件修改的关系 |
 |---|---|---|
-| Qwen3.5-35B-A3B | `Qwen3_5AgentTemplate` → `Qwen3CoderAgentTemplate` → `HermesAgentTemplate` | 不依赖这两处；Hermes 已保留 followup 正文片段 |
-| DeepSeek-V4.1-Flash-1017 | `DeepSeekV41AgentTemplate(BaseAgentTemplate)` | 不调用 V31 agent override；需要的是共享 base 来源适配及 DeepSeek 原生返回、EOS 等修复 |
-| GLM-5.3-Flash | `GLM5_1AgentTemplate(GLM4_5AgentTemplate)`，共享实现位于 `glm4.py` | 调用该文件的 `_format_tool_user_followup()`，文件名不能代表只服务 GLM4 |
+| GLM-5.3-Flash | `GLM5_1AgentTemplate(GLM4_5AgentTemplate)`，共享实现位于 `glm4.py` | 直接调用该文件的 `_format_tool_user_followup()`，修改生效 |
+| GLM4.5/4.7 | `GLM4_5AgentTemplate`／`GLM4_7AgentTemplate` | 使用同一实现，由来源片段单测覆盖 |
+| Qwen3.5-35B-A3B | `Qwen3_5AgentTemplate` → `Qwen3CoderAgentTemplate` → `HermesAgentTemplate` | 不经过该实现；Hermes 自身已保留 followup 正文片段 |
 
-保留的 GLM `_format_tool_user_followup()` 将 `prefix + user_content` 改成独立的 prefix 和原正文对象两个片段，最终连接文本不变。`Template._role_followup_prompt()` 用正文对象身份追踪 user 来源，而不是搜索正文字符串；拼接会丢失对象身份，尤其无法准确处理空串、重复正文、正文包含字面 `{{QUERY}}` 的情况。
+修改内容只有一处：`_format_tool_user_followup()` 把原来的 `prefix + user_content` 字符串拼接，改为独立的 prefix 与原始正文对象两个片段。
 
-需要区分两条 DeepSeek 继承链：普通会话模板 `DeepseekV41Template` 确实继承 `DeepseekV3_1Template`，但恢复的文件是 **agent** 的 `deepseek_v3_1.py`，V41 agent 并不继承它。因此 V41 通过不能作为 V31 真实模型通过的证据。
+原因在调用方。`Template._role_followup_prompt()` 用**正文对象身份**而不是字符串搜索来识别 user 来源，再据此给 user 正文赋角色权重。字符串拼接会丢失对象身份，导致固定模板字符、工具返回与 user 正文无法可靠区分，尤其无法处理空正文、重复正文和正文包含字面 `{{QUERY}}` 的情况；一旦来源映射失败，追加 user 的权重就会被拒绝或错配。分段后最终连接的渲染文本不变，因此不影响官方字节输出与非 role 路径。
 
-当前处理与历史证据：
-
-- **保留 `glm4.py` 修改**：由 GLM-5.3-Flash 原生模板的 28 类样例、六组权重与注入验证覆盖；同时保留 GLM4.5/4.7/5.1 来源片段单测。
-- **恢复 `deepseek_v3_1.py`**：撤销 prefix/正文分段适配，返回值与官方 HEAD 一致。此前 V31 空、重复、普通正文来源单测通过仅属于撤销前的记录，不代表当前支持；没有 V31 真实模型三方验收。
-- 从新增 `test_native_followup_preserves_user_provenance` 参数矩阵移除 V31 的三个用例及专属期望分支，保留 GLM 的九个用例；没有删除官方原有 DeepSeek 工具协议测试或跳过已测三模型用例。
-- V31 的 role 工具后追加 user 正文来源适配现在不在交付范围内。GLM4.5 补换行、GLM5 不补换行仍保持官方原有行为。
+验证证据：GLM-5.3-Flash 使用真实 `glm5_next` 模板与 `glm5_1` agent 完成 28 类样例的全部三方严格对照，六组权重的区域检查与注入往返为 168/168；`followup_3`～`followup_6`、`parallel_followups_1/2` 覆盖工具后单/双 user 及空、重复正文。GLM4.5/4.7/5.1 的九个来源片段单测在恢复后的角色回归中通过。证据见 `cross-model/run3-glm/report.json` 与 `cross-model/role-regression-20261119/role.xml`。GLM4.5 工具调用前补换行、GLM5 不补换行是官方原有行为，不是本次新增。
 
 ## 4. 全部代码变更与修复原因
 
@@ -102,7 +97,7 @@
 
 以下代码路径均相对候选仓库根目录，证据路径相对 `/data_train/vectorchen/github/ms-swift-validation-20261119/`。每个代码文件均说明修改原因及实际验证证据；“未验收”不表示通过。表中“回归”指第 6 节选定测试，不是全仓库测试。
 
-共同证据入口：三模型编码及区域/注入检查见 `cross-model/run3-{qwen,deepseek,glm}/report.json`；恢复后完整角色单测见 `cross-model/v31-revert/role.xml`；配置接线、公开输入、来源、token mask、loss/梯度、padding/packing 及 builder 历史回归见 `cross-model/regression5.xml`。这些证据的版本边界遵循第 1 节说明。
+共同证据入口：三模型编码及区域/注入检查见 `cross-model/run3-{qwen,deepseek,glm}/report.json`；恢复后完整角色单测见 `cross-model/role-regression-20261119/role.xml`；配置接线、公开输入、来源、token mask、loss/梯度、padding/packing 及 builder 历史回归见 `cross-model/regression5.xml`。这些证据的版本边界遵循第 1 节说明。
 
 | 文件 | 本次修改与原因 | 验证证据/边界 |
 |---|---|---|
@@ -115,12 +110,12 @@
 | `swift/template/base.py` | 定向合并新版工具后 user、逐轮闭合、字面占位符逻辑；保留连续 assistant/tool_call 及混合 query 的来源，配置路径进入 loss-scale 缓存键；明确固定 mask、历史 EOS；截断同步裁剪 IDs/labels/权重 | 三模型与来源、EOS、padding/packing 回归；实际左右截断集成仍未通过运行验收 |
 | `swift/agent_template/base.py` | followup prefix 与原始 user 正文分段，渲染连接值不变，供 role 来源映射使用 | DeepSeek-V4.1 真实编码与工具后 user 回归；非 role 官方对照 |
 | `swift/agent_template/glm4.py` | 对共享 GLM followup override 做相同正文来源适配 | GLM-5.3-Flash 真实编码；必要性见第 3 节 |
-| `scripts/utils/inject_role_loss_scale.py` | 迁移公共角色权重注入函数的 CLI 入口，统一输入/配置/输出/overwrite 参数，避免脚本与训练端重复定义算法 | 公共注入函数由三模型六组注入往返覆盖，见 `cross-model/run3-*/report.json`；对应注入/overwrite 单测恢复后仍通过，见 `cross-model/v31-revert/role.xml`。未独立验收每个 CLI 分支 |
+| `scripts/utils/inject_role_loss_scale.py` | 迁移公共角色权重注入函数的 CLI 入口，统一输入/配置/输出/overwrite 参数，避免脚本与训练端重复定义算法 | 公共注入函数由三模型六组注入往返覆盖，见 `cross-model/run3-*/report.json`；对应注入/overwrite 单测恢复后仍通过，见 `cross-model/role-regression-20261119/role.xml`。未独立验收每个 CLI 分支 |
 | `scripts/utils/build_cached_dataset/distributed_cached_dataset.py` | 迁移分片、任务领取、heartbeat、export、复制与合并；增强源码/配置/seed/shuffle/split 指纹，拒绝错误缓存复用，核对实际导入仓库；补齐 cuDNN 环境传递、SSH 主机密钥检查及主机输入校验 | `tests/general/test_role_cached_builder.py` 15 项通过，见 `cross-model/regression5.xml`，覆盖配置、指纹、缓存拒绝、主机和环境。真实 export、任务恢复、多节点复制/合并未验收 |
 | `scripts/utils/build_cached_dataset/run_distributed_build.sh` | 保留配置驱动的薄启动器，补齐默认引用的示例 TOML，避免默认入口指向缺失配置或旧生产环境 | 迁移阶段 Shell 语法静态检查；默认配置解析/仓库定位见 `test_example_resolves_current_repository` 和 `cross-model/regression5.xml`。未运行多节点启动 |
 | `scripts/utils/validate_role_equivalence.py` | 新增并扩展独立官方/default/role 四字段对照；支持真实模型模板参数、28 case、六组配置、注入往返、worker 超时和清单核对后的结果收集，单列官方一致拒绝 | `cross-model/run3-qwen/report.json`、`run3-deepseek/report.json`、`run3-glm/report.json`：28/28、27/27、28/28 严格等价；九个 worker 与三个 collector 退出 0，六组全 case 区域/注入通过。是恢复 V31 前的完整运行证据 |
 | `scripts/utils/role_region_oracle.py` | 新增独立原生区域期望，避免沿用 Qwen ChatML 假设或以被测 role 输出作为预期；识别 GLM 嵌入标记、并行调用批次、DeepSeek 前缀/EOS，并核对 BPE 边界和全 token 分区 | 上述三份报告的 `weighted` 与 `injection_roundtrips.regions`：六组标准轨迹均 6/6，全支持 case 分别 168/168、162/162、168/168，标签与权重检查通过；不覆盖所有模型/格式 |
-| `tests/loss_scale/test_role_loss_scale.py` | 保留原角色回归，新增配置/语义/注入、原生返回正权重、空历史 EOS、GLM 空/重复正文来源及 thinking 分隔符回归；恢复 V31 后移除仅要求已撤销适配的三个参数用例和专属分支 | 当前文件完整运行 27/27 通过，无 skip/failure/error，退出 0；证据 `cross-model/v31-revert/role.log`、`role.xml`、`role.exit`。历史30项记录不混作当前数量 |
+| `tests/loss_scale/test_role_loss_scale.py` | 保留原角色回归，新增配置/语义/注入、原生返回正权重、空历史 EOS、GLM 空/重复正文来源及 thinking 分隔符回归；恢复 V31 后移除仅要求已撤销适配的三个参数用例和专属分支 | 当前文件完整运行 27/27 通过，无 skip/failure/error，退出 0；证据 `cross-model/role-regression-20261119/role.log`、`role.xml`、`role.exit`。历史30项记录不混作当前数量 |
 | `tests/loss_scale/test_role_migration.py` | 新增角色配置接线、混合 query、来源、token mask、loss/梯度及 padding/packing 数组对齐回归；采用真实随机初始化 tiny Qwen 夹具，避免缺失官方模型接口 | 24 项通过，见 `cross-model/regression5.xml`；loss/梯度参考与数组对齐不是完整大模型 Trainer optimizer step 验收。本文件在 V31 恢复后未改动，本轮未单独重跑 |
 | `tests/general/test_role_cached_builder.py` | 新增默认配置定位、训练语义/role 配置/源码指纹、旧缓存拒绝、主机参数注入拒绝及 cuDNN 环境传递回归，明确缓存一致性与安全边界 | 15 项通过，见 `cross-model/regression5.xml`；不等于分布式缓存任务实际运行通过。本文件在 V31 恢复后未改动，本轮未单独重跑 |
 | `tests/loss_scale/test_role_training_integration.py` | 新增左右截断、encoded Arrow 缓存重载、完整 tiny Qwen Trainer/SGD 一步和原生 CLI 普通缓存往返测试，用于补足编码/公式单测之外的集成验收 | 仅 AST、空白检查与 IDE 诊断通过；启动阶段 I/O 超时，600 秒退出 124，无 collection/JUnit/断言结果。证据 `continuation/validation-continuation.json`、`integration2.log/exit`；未运行通过，不在历史31文件补丁中 |
@@ -314,7 +309,7 @@ SHA256：`7853795b2381508a58729fce89bc039d2e55207d875094b8de30fb3355f37455`。�
 
 1. 三个真实大模型权重的 forward/backward 与完整训练 smoke test；tiny Qwen loss/梯度单测不能代替。
 2. `test_role_training_integration.py` 的实际运行：完整 Trainer/SGD 一步、左右截断、普通 CLI cache 和 encoded Arrow cache 各自的保存/重载；此前仅有静态检查与启动超时记录。
-3. 新模型格式的真实 tokenizer 对照，特别是 DeepSeek V3.1；共享继承/局部单测不是全模型证明。
+3. 未纳入本次交付的其他原生 agent 格式的真实 tokenizer 对照；共享继承或局部单测不是全模型证明。
 4. 真实分布式缓存任务领取、heartbeat、恢复、export、复制、合并及训练启动侧 manifest 核对；历史 TOML 不代表当前生产环境。
 5. 多模态、Jinja 训练后端、RLHF、GPU SP/CP/Megatron 和多节点路径。
 6. 全量显式消息权重覆盖、非法/不完整工具 ID、Anthropic 输入、混合显式并行调用权重及 token-backed 终止符重叠矩阵。
