@@ -613,6 +613,10 @@ class Qwen3_5Template(Qwen3VLTemplate):
         # Must run BEFORE super(), because super() merges/wraps tool messages into
         # `<tool_response>...</tool_response>` blobs using the raw inner content.
         # See: https://github.com/modelscope/ms-swift/issues/9276
+        # Without the chat template (pt), content is raw text and must be encoded verbatim.
+        if not self.use_chat_template:
+            super()._swift_prepare_inputs(inputs)
+            return
         if isinstance(inputs.system, str):
             inputs.system = inputs.system.strip()
         for message in inputs.messages:
