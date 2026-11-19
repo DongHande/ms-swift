@@ -10,7 +10,6 @@
 
 本文以外部归档的实际报告和源码快照为准。此前文档中的 Qwen-only 结果、环境阻塞和待验收说明是阶段记录，不应与最终跨模型结果混用。本文初次新增时没有重新运行模型验证、训练或缓存构建。
 
-**后续范围收缩：**按使用者要求，`swift/agent_template/deepseek_v3_1.py` 已恢复官方 HEAD 原始实现，并移除仅针对该适配新增的三个正文来源参数用例；GLM 修改保留。下文 31 文件补丁与 126 passed 是恢复之前的真实历史证据，不改写原报告，也不冒充恢复后的整套复验结果。三个已测模型的 agent 调用链不经过 V31 override。恢复后完整运行 `tests/loss_scale/test_role_loss_scale.py`，**27 passed、退出码 0**，约 118 秒；证据保存在 `/data_train/vectorchen/github/ms-swift-validation-20261119/cross-model/role-regression-20261119/role.log`、`role.xml`、`role.exit`。本轮未重新运行三模型完整对照。
 
 ### 1.1 基线与交付范围
 
