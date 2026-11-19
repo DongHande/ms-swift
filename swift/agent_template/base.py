@@ -187,7 +187,7 @@ class BaseAgentTemplate(ReactCompatMixin, ABC):
         if chat_sep and (not res or not (isinstance(res[-1], str) and res[-1].endswith(chat_sep))):
             res.append(chat_sep)
         for i, message in enumerate(user_messages):
-            res.append(prefix + message['content'])
+            res.extend([prefix, message['content']])
             res.append(suffix if i == len(user_messages) - 1 else chat_sep)
         return res
 

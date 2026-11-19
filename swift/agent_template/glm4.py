@@ -167,7 +167,8 @@ class GLM4_5AgentTemplate(BaseAgentTemplate):
         # Keep the native tool turns and replace only their trailing assistant transition.
         _, tool_content = self._format_tool_responses('', tool_messages)
         prefix, suffix = ''.join(self.template_meta.prompt).split('{{QUERY}}', 1)
-        return tool_content[:-1] + [prefix + message['content'] for message in user_messages] + [suffix]
+        followups = [part for message in user_messages for part in (prefix, message['content'])]
+        return tool_content[:-1] + followups + [suffix]
 
     def _format_standalone_tool_responses(self, tool_messages) -> 'Prompt':
         res = ['<|observation|>']
