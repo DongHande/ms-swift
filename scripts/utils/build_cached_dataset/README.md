@@ -21,11 +21,24 @@
 | 官方基线 | `1997fa6f4192d41769ea17b43eb811f943ed2aed` |
 | 迁移源 | `origin/feat/agent-role-loss-scale-v20260908`，源 tip 为 `3b3f8d30314bec40f6dd808e2400188749d25881` |
 | 共同祖先 | `75baafb27f3f2b9676f0fa1b6bfe4dc5715698a4` |
-| 原始增量 | 5 个提交、22 个文件；后续在当前官方基线上适配，而非整文件覆盖 |
-| 最终已核对补丁 | 31 个候选文件；另有未完成运行验收的训练集成测试，不在该补丁内 |
-| 当前提交状态 | 迁移主体已暂存，后续部分修复未暂存；本次工作没有提交或推送，也没有更改用户暂存区 |
+| 原始增量 | 5 个提交、22 个文件、2501 行新增、26 行删除；后续在当前官方基线上适配，而非整文件覆盖 |
+| 历史已核对补丁 | 31 个候选文件；另有未完成运行验收的训练集成测试，不在该补丁内；当前交付与历史补丁的差异见第 7 节 |
+| 当前分支 | `feat/agent-role-loss-scale-v20261119`，跟踪 `origin/feat/agent-role-loss-scale-v20261119` |
+| 远程仓库 | `https://github.com/DongHande/ms-swift` |
+| 已提交交付 | `1aea3de5a88686c458108c3e940ec8201398f979` 提交全部32项迁移改动；`2ac6a1655ba611a3a19d598983923378068e1b47` 修正文档，二者均已推送 |
+| 本轮文档整合 | 合并1118独有记录、统一审阅入口并移除旧文档；截至本轮修改完成，尚未提交或推送这次文档整合 |
 
-原始 5 个提交分别涉及角色权重、缓存构建、`tool` 别名、cuDNN 环境传递和生产配置。源增量、后续修复、验证工具和文档都属于本次交付，但其运行验收范围不同，见第 4～7 节。
+原始 5 个提交依次如下；它们是迁移来源，不是当前官方基线上的交付提交：
+
+| 源提交 | 内容 |
+|---|---|
+| `c02603690` | 角色权重与 assistant 语义系数 |
+| `210fc4fd0` | 分布式 cached dataset 构建器 |
+| `331546805` | 接受官方 `tool` 别名 |
+| `ce58b24ea` | 向远端 worker 传递 cuDNN 库路径 |
+| `3b3f8d303` | 历史 d64 sft0 生产配置 |
+
+原 fork `main` 不作为迁移源；保留其原引用，以0908功能分支为源、上述独立官方提交为目标进行适配。源增量、后续修复、验证工具和文档的运行验收范围不同，见第 4～7 节。迁移处理策略与原始证据索引已合并到本文第 6.2、7.3 节，不再维护第二份迁移说明。
 
 ## 2. 配置选择与职责边界
 
@@ -51,6 +64,10 @@
 - 显式 `message.loss_scale` 优先于角色默认值；已物化的消息不会因为修改 `role_weights` 自动改变。assistant 子区域系数训练时仍从配置读取。
 - 等价对照没有任意显式消息权重覆盖。官方显式权重可以覆盖 `ignore_empty_think`，而 `role` 始终屏蔽空 think；这是保留的语义差异，**不承诺任意显式覆盖条件下严格等价**。
 - 配置名称中的“等价”只指本次支持输入与已核对设置，不是对所有模型、RLHF 或 Jinja 后端的保证。
+- `role+hermes` 在 response 片段上将语义权重与 Hermes modifier 相乘；`role+ignore_empty_think` 由 role 自行处理空 think，避免对拆分后的非空 think 闭合标签再次屏蔽。其他 modifier 组合明确拒绝，不宣称任意组合可用。
+- 模板固定包装、padding、输入媒体 token 保留框架 mask；历史 EOS 根据实际 response 监督状态处理，最终 suffix 默认权重为1。`message.loss=False` 不意味着最终 suffix 也会被屏蔽；文本历史边界的真实三方证据与 token-backed 未覆盖边界需分开看。
+- token-backed response 的显式逐 token mask 与角色基础权重相乘，不能仅从 token IDs 推断 think/answer 语义；历史 EOS 在该路径以最后非空片段的末尾 token 权重为依据。普通文本路径判断是否存在非空正权重片段；两者不是对官方动态 EOS 任意边界的等价承诺。
+- 权重分段发生在分词前，改变分段边界可能改变 `input_ids`，必须同时核对渲染、IDs、labels 与权重。这是逐 token 监督配置，不是混合精度 GradScaler 或样本级整体 loss 缩放。
 
 ### 2.2 缓存构建配置
 
@@ -168,14 +185,13 @@ L = \frac{\sum_t w_t\,\mathrm{CE}_t}{N_{\mathrm{有效标签}}}
 | `tests/general/test_role_cached_builder.py` | 新增配置、指纹、源码覆盖、旧缓存拒绝、主机校验和 cuDNN 传递回归；最终 15 项通过 |
 | `tests/loss_scale/test_role_training_integration.py` | 另行新增左右截断、encoded Arrow 缓存重载、tiny Qwen 完整 Trainer/SGD 一步、原生 CLI 普通缓存往返测试；仅静态检查通过，运行初始化超时；**不在已验证的 31 文件补丁及最终核心回归内** |
 | `docs/source/Customization/Agent-role-loss-scale.md` | 迁移中文能力/配置/使用说明，修正示例配置路径，保留历史范围提示 |
-| `docs/source/Customization/Loss-scale-migration-20261118.md` | 新增迁移逐项记录，补入 Qwen 阶段证据并标记 20261118 环境阻塞；最终跨模型结果在本文与外部报告中说明 |
 | `docs/source/Customization/Architecture.md`、`docs/source/Customization/Custom-dataset.md` | 合并 role 入口/数据扩展，保留官方连续权重说明 |
 | `docs/source/Instruction/Agent-support.md`、`docs/source/Instruction/Command-line-parameters.md` | 合并 role 文档入口与新增参数说明 |
 | `docs/source_en/Customization/Architecture.md`、`docs/source_en/Customization/Custom-dataset.md` | 对应英文入口与数据说明同步迁移 |
 | `docs/source_en/Instruction/Agent-support.md`、`docs/source_en/Instruction/Command-line-parameters.md` | 对应英文入口与参数说明同步迁移 |
 | `scripts/utils/build_cached_dataset/README.md` | 本文：新增中文单页配置/变更/修复/验证审阅记录；是在模型验证结束之后新增，不属于当时已重放的补丁 |
 
-历史补丁包含核心实现 10 个、注入/构建 6 个、验证工具及已选新增回归 5 个、文档 10 个，共计 31 个文件。恢复 V31 后，核心实现变更为 9 个，该文件不再属于当前增量；测试矩阵同步调整。另列训练集成测试及本文，避免将未验证代码遗漏或混入通过数。第 6 节的其他官方测试文件被运行，但未被本次修改。
+历史补丁包含核心实现 10 个、注入/构建 6 个、验证工具及已选新增回归 5 个、文档 10 个，共计 31 个文件。恢复 V31 后，核心实现变更为 9 个，该文件不再属于当前增量；测试矩阵同步调整。本轮将独立1118文档的内容并入本文并删除旧文件，不改写历史31文件补丁与报告。另列训练集成测试及本文，避免将未验证代码遗漏或混入通过数。第 6 节的其他官方测试文件被运行，但未被本次修改。
 
 ## 5. 严格三方与独立区域验证
 
@@ -271,7 +287,56 @@ SHA256：`7853795b2381508a58729fce89bc039d2e55207d875094b8de30fb3355f37455`。�
 
 此前 Qwen 环境准备阶段按授权新增了缺失依赖；跨模型最终阶段及本文新增阶段没有再安装依赖。验证使用离线、禁 GPU、限 CPU 线程设置，加载的是模型目录 tokenizer/processor/config，不加载大模型权重。Swift 基线仍可能打印 `trust_remote_code=True` 提示；验证器在加载前拒绝模型目录自定义 Python 与 `auto_map`，本次三个原生目录通过检查，没有执行模型仓库自定义代码。不能将这个原生目录约束宣称为对任意远端模型代码的普遍安全保证。
 
-任务采用后台限时运行与短轮询，失败退出码、初始化阻塞、原始失败样例和最终复验都保留，没有安装新版本来绕过断言、没有提交/推送或改动独立官方仓库。
+任务采用后台限时运行与短轮询，失败退出码、初始化阻塞、原始失败样例和最终复验都保留。验证阶段没有提交/推送或改动独立官方仓库；验证后的实际提交/推送状态见第 1.1 节。
+
+### 6.2 原始迁移的处理策略与阶段边界
+
+本节合并1118迁移记录的独有内容，不另维护一份迁移报告。“迁移”仅表示来源增量已纳入候选，不表示每个运行入口已经验证。
+
+#### agent-role-scale-v20260908分支原22文件处理索引
+
+第 4 节负责当前变更与验证证据；本表仅补充0908原始22文件在迁移时的处理策略，不把未修改或已移除文件重新列为当前核心代码变更。
+
+| 来源文件 | 迁移时的处理策略 |
+|---|---|
+| `swift/loss_scale/role.py` | 保留角色配置、注入、语义拆分及 modifier；补充无效消息权重拒绝、token-backed mask、混合查询和 standalone 来源适配；后续原生模型支持以第 5 节为准 |
+| `swift/loss_scale/mapping.py` | 迁移 role 工厂与组合限制，保留其他官方策略注册 |
+| `swift/arguments/base_args/template_args.py` | 迁移配置路径、二值模式约束及 kwargs 透传，保留其他官方参数 |
+| `swift/template/register.py` | 将配置透传适配到新版官方注册接口 |
+| `swift/template/utils.py` | 合并新增上下文类型，保留新版 helper |
+| `swift/template/template_inputs.py` | 保留系统权重与角色来源，同时保留新版 OpenAI ID 对齐和偏好归一化 |
+| `swift/template/base.py` | 人工解决两块冲突；保留工具后 user 渲染、逐轮闭合和字面占位符，附加角色正文边界与历史 EOS；不覆盖新版 encoding/collator/packing |
+| `scripts/utils/inject_role_loss_scale.py` | 迁移公共注入函数的独立入口，不另建算法 |
+| `scripts/utils/build_cached_dataset/distributed_cached_dataset.py` | 保留完整构建流程；补充指纹和 SSH 安全默认值，非实际分布式运行证明 |
+| `scripts/utils/build_cached_dataset/run_distributed_build.sh` | 保留启动器，补齐引用的缺失通用 TOML |
+| `scripts/utils/build_cached_dataset/role_loss_config_sft0_equiv.json` | 原样迁移 output-only 等价配置 |
+| `scripts/utils/build_cached_dataset/cached_dataset_config_d64_sft0_default.toml` | 保留历史参数、更新仓库路径并标注环境需重新核对，不默认执行 |
+| `tests/loss_scale/test_role_loss_scale.py` | 保留原回归，新增关闭 think 与 OpenAI 注入/覆盖检查；后续真实结果见第 6 节 |
+| `docs/source/Customization/Agent-role-loss-scale.md` | 迁移能力与使用说明，将旧测试标为历史；当前迁移审阅统一指向本文 |
+| `docs/source/Customization/Architecture.md`、`docs/source_en/Customization/Architecture.md` | 两个文件分别保留官方内容并合并角色权重入口 |
+| `docs/source/Customization/Custom-dataset.md`、`docs/source_en/Customization/Custom-dataset.md` | 两个文件人工合并数据扩展，保留官方0.5/2.0非二值权重说明，不以旧文件覆盖 |
+| `docs/source/Instruction/Agent-support.md`、`docs/source_en/Instruction/Agent-support.md` | 两个文件分别保留官方内容并合并 role 链接 |
+| `docs/source/Instruction/Command-line-parameters.md`、`docs/source_en/Instruction/Command-line-parameters.md` | 两个文件分别合并 role 参数，保留官方新增参数 |
+
+上述14个单文件与4组双文件共22个来源文件，没有因冲突整文件选择 ours/theirs，也没有遗漏来源文件。`swift/trainers`、`swift/megatron`、`swift/dataset/packing.py` 和模型实现不搬旧文件，继续复用官方基线；这不代表其全部运行后端已验收。
+
+#### 适配中的关键约束
+
+- 连续 assistant 合并正文时同步保存 `loss`、`loss_scale` 和来源角色；连续 user、工具混合 query 与 standalone 来源片段仍放在官方交替 query/assistant 表示内，不另造会话协议。
+- 直接传入 `TemplateInputs` 也初始化角色来源，缺失来源回退为 assistant。混合 query 用字符串子类保存正文身份；渲染丢失边界时明确报错，不通过字符串搜索猜测来源。
+- 非 role 模式保留官方占位符替换顺序、上下文片段和动态 EOS；并行工具权重一致性约束仅在 role 模式生效。
+- builder 指纹覆盖 agent/template/loss_scale/dataset 实现及依赖声明，并纳入 seed、shuffle、split；旧指纹拒绝复用，但不记录所有已安装依赖版本，也不认证缓存真实性。
+- 训练入口不自动验证 builder 外部 manifest，需启动侧人工核对源码、role配置和构建参数；不要加载不可信 pickle/indexed cache。
+
+#### 1118检查与阻塞的具体性质
+
+当时原始文件覆盖为22/22；完成受影响 Python AST、JSON/TOML、Shell语法、空白/冲突标记/unmerged索引及IDE诊断检查。builder审查前14项通过，随后新增源码覆盖测试与其他修复，因此那份JUnit不覆盖最终候选；最终15项回归见第 6 节。
+
+系统Python缺少torch，loss_scale目录收集报4项依赖错误；GLM baseline导入torch出现文件系统I/O超时，隔离CPU环境安装遇到 `.Trash-1231` 权限失败，未改原训练依赖，当时暂停排查。它们都不是主动skip或断言通过。OpenAI注入、原role及融合回归后来在可用环境复验；其他模型原生工具标记和EOS的担忧由第 5 节三模型结果部分闭环，不能泛化到全部格式。
+
+1119 Qwen环境准备按授权新增 `qwen_vl_utils==0.0.14`、`decord==0.6.0`、`pytest==9.2.0`、`kernels==0.18.3` 及缺失的 `av`、`pluggy`、`iniconfig`，原有包版本未改变，安装前后清单与日志已保留。离线bitsandbytes CPU量化kernel未缓存提示不影响本次非量化tokenizer/CPU回归，但本次没有量化验收。
+
+准入仍要求真实使用模型/后端的必要回归和训练smoke test、失败修复与最终代码证据齐全；不能仅凭三方补丁应用无冲突、静态检查或tokenizer编码通过宣布可训练发布。
 
 ## 7. 归档、重放与复验入口
 
@@ -305,6 +370,27 @@ SHA256：`7853795b2381508a58729fce89bc039d2e55207d875094b8de30fb3355f37455`。�
 
 复跑应指定**新的输出目录**，保留本次历史证据；采用后台硬超时和短轮询，不使用长时间无输出的前台等待。本文不自动执行复验命令或真实缓存生产任务。
 
+### 7.3 原始迁移与Qwen阶段证据索引
+
+1118外部归档：`/data_train/vectorchen/github/ms-swift-migration-20261118/`。这些文件对应当时源码和环境，不作为当前候选的重新验收结果。
+
+| 文件 | 历史含义 |
+|---|---|
+| `0908-complete.patch` | 共同祖先到0908源tip的原始完整增量，仅用于追溯 |
+| `0001-*.patch`～`0005-*.patch` | 五个来源提交的补丁序列，与第 1.1 节提交顺序一致 |
+| `0908-files.txt` | 原22文件来源清单 |
+| `migration-final.patch`、`migration-final-files.txt` | 1118候选工作树相对指定官方基线的完整补丁及文件清单，含当时新增测试与旧迁移文档 |
+| `migration-files.json` | 每个来源文件原版/新版内容哈希及是否原样迁移的机器可读记录 |
+| `artifact-sha256.txt`、`current-file-sha256.txt` | 原始/阶段补丁校验值与当时工作树指纹，非当前全部文件状态 |
+| `cache-tests.xml`、`cache-tests.log` | 审查前builder14项结果，不能用于覆盖后续指纹与安全修复 |
+| `role-tests.xml`、`role-tests.log`、`test-env-check.log` | 依赖/环境失败记录，非role测试通过证据 |
+| `environment-install.log`、`isolated-test-environment-install.log` | 环境检查与隔离安装失败过程 |
+| `diff-check.log`、`python-compile.log`、`parse-and-shell.log` | 当时空白、Python/配置/Shell静态检查 |
+
+1119 Qwen-only阶段归档：`/data_train/vectorchen/github/ms-swift-validation-20261119/`。`run3/report.json`、各三方JSON、`cases.json`、六组配置与注入JSONL，以及 `regression3.xml/log` 对应第 6 节14类/84次/93 passed的阶段结果。`run3-source-snapshot.json` 用于运行前后14个被测/验证代码文件及原样例哈希核对；`migration-validated-20261119.patch`、`validation-final.json`、`artifact-sha256.txt` 保存该阶段补丁及结果指纹。它们不等于后来跨模型31文件快照，更不等于当前完整交付已重验。
+
+各阶段补丁只能对其声明的清洁官方基线应用；原0908补丁仅供来源追溯，不能在迁移后的完整补丁上再次叠加。重放检查使用独立临时Git索引，不改用户正式索引或分支HEAD。历史补丁仍可能创建已移除的迁移文档或带回已撤销的适配；当前交付以第 1.1 节Git提交及本轮文档差异为准。独有内容已经合并到本文，旧迁移文件仅在Git历史与外部阶段补丁中保留，不再作为并列审阅入口。
+
 ## 8. 仍需独立验收的事项
 
 1. 三个真实大模型权重的 forward/backward 与完整训练 smoke test；tiny Qwen loss/梯度单测不能代替。
@@ -314,4 +400,4 @@ SHA256：`7853795b2381508a58729fce89bc039d2e55207d875094b8de30fb3355f37455`。�
 5. 多模态、Jinja 训练后端、RLHF、GPU SP/CP/Megatron 和多节点路径。
 6. 全量显式消息权重覆盖、非法/不完整工具 ID、Anthropic 输入、混合显式并行调用权重及 token-backed 终止符重叠矩阵。
 
-补充能力说明见 [Agent-role-loss-scale.md](../../../docs/source/Customization/Agent-role-loss-scale.md)，原迁移过程见 [Loss-scale-migration-20261118.md](../../../docs/source/Customization/Loss-scale-migration-20261118.md)。这些链接用于追溯，不替代本文第 5～7 节明确的最终证据与验收边界。
+本文是本次迁移、当前变更、修复与验证证据的唯一中文审阅入口。补充设计和使用说明见 [Agent-role-loss-scale.md](../../../docs/source/Customization/Agent-role-loss-scale.md)；该能力文档及源分支旧结果不能替代本文的验收证据。原迁移策略与阶段产物已统一收录于第 6.2、7.3 节，不再维护独立1118迁移文档。

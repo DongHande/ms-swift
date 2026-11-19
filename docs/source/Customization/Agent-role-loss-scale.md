@@ -7,7 +7,7 @@ Agent Role Loss Scale 为标准 Agent JSONL 提供一套共享配置的连续权
 1. **数据注入**：按原始消息 role 向每条 message 写入基础 `loss_scale`，用于固化和审计实验数据。
 2. **训练展开**：读取 message 权重，在 tokenization 前保留消息来源，进一步拆分 assistant 的 think 标签、思考内容和回答，并生成逐 token `loss_scale`。当前可选modifier只作用于response片段。
 
-已验证范围是：`template_backend=swift`、因果语言模型 SFT、Qwen3.5 的 `qwen3_5` Agent 模板。其他 Agent 模板、Jinja 训练后端和 RLHF 不在当前验证范围内。
+本文说明角色权重的设计与使用，不作为本次迁移的独立验收记录。当前代码变更、修复原因、Qwen3.5／DeepSeek-V4.1／GLM-5.3-Flash 的真实模板验证结果及未验收边界，统一以[中文审阅 README](../../../scripts/utils/build_cached_dataset/README.md)为准；Jinja 训练后端和 RLHF 未纳入本次验收。
 
 职责边界如下：
 
@@ -369,7 +369,7 @@ loss_scale
 
 ## 9. 0908 分支历史验证记录
 
-以下结果来自原 `0908` 文档，未在 `20261118` 迁移分支重新验收，不能作为本次测试通过的依据。当前迁移策略与待验证范围见 [20261118迁移记录](Loss-scale-migration-20261118.md)。
+以下结果来自原 `0908` 文档，仅保留来源分支的历史记录，不能作为当前候选的测试通过依据。当前迁移处理、代码变更、真实三模型验证及未验收范围，统一见[中文审阅 README](../../../scripts/utils/build_cached_dataset/README.md)。
 
 开发分支：`feat/agent-role-loss-scale-v20260908`。
 
