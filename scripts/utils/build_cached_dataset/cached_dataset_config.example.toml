@@ -14,16 +14,16 @@ base = "/data_train/vectorchen/datasets/006_agent_behavior_pattern/v6/dataset/ex
 files = ["train.jsonl"]
 
 [output]
-allowed_output_root = "/data_train/train/deepseek/cache/dsv41_128k_role_20261122"
-work_root = "/data_train/train/deepseek/cache/dsv41_128k_role_20261122/work"
-raw_shards_dir = "/data_train/train/deepseek/cache/dsv41_128k_role_20261122/work/raw_shards_64"
-cached_shards_dir = "/data_train/train/deepseek/cache/dsv41_128k_role_20261122/work/cached_shards_64"
-final_out_dir = "/data_train/train/deepseek/cache/dsv41_128k_role_20261122/cached_dataset/dsv41_128k_role"
-log_dir = "/data_train/train/deepseek/cache/dsv41_128k_role_20261122/work/logs"
+allowed_output_root = "/data_train/vectorchen/datasets/006_agent_behavior_pattern/v6/cached_dataset/dsv41_128k_role_20261122"
+work_root = "/data_train/vectorchen/datasets/006_agent_behavior_pattern/v6/cached_dataset/dsv41_128k_role_20261122/work"
+raw_shards_dir = "/data_train/vectorchen/datasets/006_agent_behavior_pattern/v6/cached_dataset/dsv41_128k_role_20261122/work/raw_shards_64"
+cached_shards_dir = "/data_train/vectorchen/datasets/006_agent_behavior_pattern/v6/cached_dataset/dsv41_128k_role_20261122/work/cached_shards_64"
+final_out_dir = "/data_train/vectorchen/datasets/006_agent_behavior_pattern/v6/cached_dataset/dsv41_128k_role_20261122/cached_dataset/dsv41_128k_role"
+log_dir = "/data_train/vectorchen/datasets/006_agent_behavior_pattern/v6/cached_dataset/dsv41_128k_role_20261122/work/logs"
 local_work_root = "/opt/dlami/nvme/swcd-dsv41-s0"
 
 [build]
-total_shards = 64
+total_shards = 32
 copy_parallel = 4
 save_num_proc = 32
 auto_merge = true
