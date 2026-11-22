@@ -1,50 +1,53 @@
-# Set MODEL, IP_FILE, ENV_BIN and output/data paths before running.
-model = "/path/to/local/model"
-ip_file = "/path/to/worker-hosts.txt"
+# DeepSeek-V4.1-Flash 128K role loss 缓存构建（主队列 32 节点）
+# CONFIG=./cached_dataset_config.example.toml ./run_distributed_build.sh
+
+model = "/data_train/train/deepseek/models/DeepSeek-V4.1-Flash-1017"
+ip_file = "/data_train/train/deepseek/main-queue.txt"
 
 [runtime]
-env_bin = "/path/to/python-env/bin"
-cuda_fallback_ld_path = ""
+env_bin = "/data_train/vectorchen/env/DeepSeek/exp/bin"
+ms_swift_repo = "/data_train/vectorchen/github/ms-swift-codebuddy"
+cuda_fallback_ld_path = "/data_train/vectorchen/env/DeepSeek/exp/lib/python3.12/site-packages/nvidia/cudnn/lib:/data_train/vectorchen/env/DeepSeek/exp/lib/python3.12/site-packages/nvidia/cublas/lib:/usr/local/cuda/lib64"
 
 [dataset]
-base = "/path/to/dataset"
+base = "/data_train/vectorchen/datasets/006_agent_behavior_pattern/v6/dataset/exp_data/v6.17_mix_swe_atom"
 files = ["train.jsonl"]
 
 [output]
-allowed_output_root = "/path/to/output"
-work_root = "/path/to/output/work"
-raw_shards_dir = "/path/to/output/work/raw_shards"
-cached_shards_dir = "/path/to/output/work/cached_shards"
-final_out_dir = "/path/to/output/cached_dataset"
-log_dir = "/path/to/output/logs"
-local_work_root = "/tmp/swift-role-cache"
+allowed_output_root = "/data_train/train/deepseek/cache/dsv41_128k_role_20261122"
+work_root = "/data_train/train/deepseek/cache/dsv41_128k_role_20261122/work"
+raw_shards_dir = "/data_train/train/deepseek/cache/dsv41_128k_role_20261122/work/raw_shards_64"
+cached_shards_dir = "/data_train/train/deepseek/cache/dsv41_128k_role_20261122/work/cached_shards_64"
+final_out_dir = "/data_train/train/deepseek/cache/dsv41_128k_role_20261122/cached_dataset/dsv41_128k_role"
+log_dir = "/data_train/train/deepseek/cache/dsv41_128k_role_20261122/work/logs"
+local_work_root = "/opt/dlami/nvme/swcd-dsv41-s0"
 
 [build]
-total_shards = 4
-copy_parallel = 1
-save_num_proc = 1
+total_shards = 64
+copy_parallel = 4
+save_num_proc = 32
 auto_merge = true
 stale_task_seconds = 1800
 heartbeat_seconds = 30
 progress_interval_seconds = 30
 max_worker_rounds = 3
 split_buffer_bytes = 4194304
-split_num_proc = 1
-split_chunk_bytes = 1073741824
-split_worker_buffer_bytes = 4194304
-merge_group_size = 4
+split_num_proc = 16
+split_chunk_bytes = 4294967296
+split_worker_buffer_bytes = 67108864
+merge_group_size = 64
 
 [export]
-template = "qwen3_5"
-agent_template = "qwen3_5"
+template = "deepseek_v41"
+agent_template = "deepseek_v41"
 loss_scale = "role"
 role_loss_config = "./role_loss_config_sft0_equiv.json"
 materialize_role_weights = true
-max_length = 32768
+max_length = 131072
 truncation_strategy = "delete"
-dataset_num_proc = 1
+dataset_num_proc = 16
 dataset_shuffle = true
-data_seed = 20261118
+data_seed = 20261122
 split_dataset_ratio = 0.0
 load_from_cache_file = true
 to_cached_dataset = true
