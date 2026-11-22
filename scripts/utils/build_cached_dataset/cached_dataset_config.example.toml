@@ -18,7 +18,7 @@ allowed_output_root = "/data_train/vectorchen/datasets/006_agent_behavior_patter
 work_root = "/data_train/vectorchen/datasets/006_agent_behavior_pattern/v6/cached_dataset/dsv41_128k_role_20261122/work"
 raw_shards_dir = "/data_train/vectorchen/datasets/006_agent_behavior_pattern/v6/cached_dataset/dsv41_128k_role_20261122/work/raw_shards_64"
 cached_shards_dir = "/data_train/vectorchen/datasets/006_agent_behavior_pattern/v6/cached_dataset/dsv41_128k_role_20261122/work/cached_shards_64"
-final_out_dir = "/data_train/vectorchen/datasets/006_agent_behavior_pattern/v6/cached_dataset/dsv41_128k_role_20261122/cached_dataset/dsv41_128k_role"
+final_out_dir = "/data_train/vectorchen/datasets/006_agent_behavior_pattern/v6/cached_dataset/dsv41_128k_role_20261122/cached_dataset/dsv41_128k_role_right"
 log_dir = "/data_train/vectorchen/datasets/006_agent_behavior_pattern/v6/cached_dataset/dsv41_128k_role_20261122/work/logs"
 local_work_root = "/opt/dlami/nvme/swcd-dsv41-s0"
 
@@ -44,7 +44,7 @@ loss_scale = "role"
 role_loss_config = "./role_loss_config_sft0_equiv.json"
 materialize_role_weights = true
 max_length = 131072
-truncation_strategy = "delete"
+truncation_strategy = "right"
 dataset_num_proc = 16
 dataset_shuffle = true
 data_seed = 20261122
